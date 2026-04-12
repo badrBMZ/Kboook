@@ -1,0 +1,898 @@
+<!DOCTYPE html>
+
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="BMZ"/>
+<meta name="theme-color" content="#060e17"/>
+<title>BMZ</title>
+<style>*{margin:0;padding:0;box-sizing:border-box;}body{background:#060e17;overflow-x:hidden;-webkit-text-size-adjust:100%;}input,button,select,textarea{font-family:inherit;}</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<script type="text/babel">
+const { useState, useEffect, createContext, useContext } = React;
+
+// ─── STORAGE ──────────────────────────────────────────
+const SK_B = “bmz_bookings”, SK_E = “bmz_expenses”, SK_N = “bmz_appname”, SK_T = “bmz_theme”;
+
+// ─── THEMES ───────────────────────────────────────────
+const THEMES = {
+dark: {
+bg:”#060e17”, card:”#0f1923”, card2:”#1a2533”,
+gold:”#c9a84c”, gold2:”#f0d080”,
+text:”#f0e6c8”, sub:”#8899aa”, sub2:”#667788”,
+border:”#1e2d3d”, inputBg:”#1a2533”, inputText:”#f0e6c8”,
+headerBg:“linear-gradient(135deg,#0f1923 0%,#1a2e42 100%)”,
+shadow:“0 4px 30px rgba(0,0,0,0.5)”,
+statBg:“linear-gradient(145deg,#0f1923,#1a2533)”,
+cardBg:“linear-gradient(145deg,#0f1923,#141f2e)”,
+danger:”#ff5555”, dangerBg:”#1a0000”,
+green:”#4caf50”, greenBg:”#0a1f0a”,
+blue:”#2196f3”, blueBg:”#040f1a”,
+amber:”#ff9800”, amberBg:”#1a1000”,
+radial:“radial-gradient(ellipse at 20% 20%,#0d1f2e 0%,#060e17 60%)”,
+},
+light: {
+bg:”#f0f4f8”, card:”#ffffff”, card2:”#e8edf4”,
+gold:”#9a7010”, gold2:”#c49820”,
+text:”#1a2533”, sub:”#5a6a7a”, sub2:”#7a8a9a”,
+border:”#c8d4e0”, inputBg:”#ffffff”, inputText:”#1a2533”,
+headerBg:“linear-gradient(135deg,#ffffff 0%,#e8edf4 100%)”,
+shadow:“0 4px 20px rgba(0,0,0,0.08)”,
+statBg:“linear-gradient(145deg,#ffffff,#e8edf4)”,
+cardBg:“linear-gradient(145deg,#ffffff,#f4f7fa)”,
+danger:”#d32f2f”, dangerBg:”#fff0f0”,
+green:”#2e7d32”, greenBg:”#f0fff0”,
+blue:”#1565c0”, blueBg:”#f0f4ff”,
+amber:”#e65100”, amberBg:”#fff8f0”,
+radial:“none”,
+}
+};
+
+const ThemeCtx = createContext(THEMES.dark);
+const useT = () => useContext(ThemeCtx);
+
+// ─── HELPERS ──────────────────────────────────────────
+const fc = n => new Intl.NumberFormat(“ar-SA”,{style:“currency”,currency:“SAR”,minimumFractionDigits:0}).format(n||0);
+const todayStr = () => new Date().toISOString().split(“T”)[0];
+const tmrwStr  = () => { const d=new Date(); d.setDate(d.getDate()+1); return d.toISOString().split(“T”)[0]; };
+const isTmrw   = (s,e) => { const t=tmrwStr(); return t>=s&&t<=(e||s); };
+const isPast   = e => (e||””) < todayStr();
+const isNow    = (s,e) => { const t=todayStr(); return t>=s&&t<=(e||s); };
+const dur      = (s,e) => { if(!s||!e) return 1; const d=Math.round((new Date(e)-new Date(s))/86400000)+1; return d>0?d:1; };
+const overlap  = (s1,e1,s2,e2) => s1<=e2&&s2<=e1;
+const getConf  = (bks,s,e,xid) => { if(!s||!e) return []; return bks.filter(b=>{ if(b.id===xid||b.confirmed) return false; return overlap(s,e,b.startDate,b.endDate||b.startDate); }); };
+const mKey     = d => d?d.substring(0,7):””;
+const AM = [“يناير”,“فبراير”,“مارس”,“أبريل”,“مايو”,“يونيو”,“يوليو”,“أغسطس”,“سبتمبر”,“أكتوبر”,“نوفمبر”,“ديسمبر”];
+const DAR = [“أحد”,“اثنين”,“ثلاثاء”,“أربعاء”,“خميس”,“جمعة”,“سبت”];
+
+// Booking color by status
+const bColor = (b,T) => {
+if (b.confirmed)                           return {border:T.green,  bg:T.greenBg,  label:“✓ مكتمل”,    lbg:T.greenBg};
+const rem = Math.max(0,b.totalAmount-b.paidAmount);
+if (isPast(b.endDate||b.startDate))        return {border:T.danger, bg:T.dangerBg, label:“⏰ منتهي”,    lbg:T.dangerBg};
+if (rem===0)                               return {border:T.blue,   bg:T.blueBg,   label:“💰 مدفوع كامل”,lbg:T.blueBg};
+if (isNow(b.startDate,b.endDate||b.startDate)) return {border:T.gold,bg:T.amberBg,label:“🟡 جارٍ الآن”,lbg:T.amberBg};
+return {border:T.amber, bg:T.amberBg, label:“⏳ متبقي مبلغ”, lbg:T.amberBg};
+};
+
+// ─── SHARED UI ────────────────────────────────────────
+function Modal({open,onClose,children}){
+const T=useT();
+if(!open) return null;
+return(
+<div style={{position:“fixed”,inset:0,background:“rgba(0,0,0,0.75)”,zIndex:200,display:“flex”,alignItems:“center”,justifyContent:“center”,padding:“16px”,backdropFilter:“blur(6px)”}} onClick={onClose}>
+<div style={{background:T.card,border:`1px solid ${T.gold}`,borderRadius:“18px”,padding:“24px”,width:“100%”,maxWidth:“430px”,maxHeight:“90vh”,overflowY:“auto”,boxShadow:`0 0 60px ${T.gold}22`}} onClick={e=>e.stopPropagation()}>
+{children}
+</div>
+</div>
+);
+}
+
+function SubHeader({title,sub,onBack,rightBtn}){
+const T=useT();
+return(
+<div style={{background:T.headerBg,borderBottom:`2px solid ${T.gold}`,padding:“18px 20px”,position:“sticky”,top:0,zIndex:50,boxShadow:T.shadow}}>
+<div style={{display:“flex”,alignItems:“center”,justifyContent:“space-between”}}>
+<div style={{display:“flex”,alignItems:“center”,gap:“12px”}}>
+<button onClick={onBack} style={{background:T.card2,border:`1px solid ${T.gold}44`,borderRadius:“10px”,padding:“8px 14px”,color:T.gold,fontSize:“14px”,cursor:“pointer”,fontWeight:“700”}}>← رجوع</button>
+<div>
+<div style={{fontSize:“17px”,fontWeight:“900”,background:`linear-gradient(135deg,${T.gold},${T.gold2})`,WebkitBackgroundClip:“text”,WebkitTextFillColor:“transparent”}}>{title}</div>
+<div style={{color:T.sub,fontSize:“11px”}}>{sub}</div>
+</div>
+</div>
+{rightBtn}
+</div>
+</div>
+);
+}
+
+function MonthPicker({selYear,selMonth,setSelYear,setSelMonth,years}){
+const T=useT();
+const prev=()=>{if(selMonth===0){setSelMonth(11);setSelYear(y=>y-1);}else setSelMonth(m=>m-1);};
+const next=()=>{if(selMonth===11){setSelMonth(0);setSelYear(y=>y+1);}else setSelMonth(m=>m+1);};
+return(
+<div style={{background:T.card2,border:`1px solid ${T.gold}44`,borderRadius:“16px”,padding:“14px”,marginBottom:“16px”}}>
+<div style={{display:“flex”,alignItems:“center”,justifyContent:“space-between”,marginBottom:“10px”}}>
+<button onClick={prev} style={{background:“none”,border:`1px solid ${T.gold}33`,borderRadius:“10px”,width:“38px”,height:“38px”,color:T.gold,fontSize:“18px”,cursor:“pointer”,display:“flex”,alignItems:“center”,justifyContent:“center”}}>‹</button>
+<div style={{textAlign:“center”}}>
+<div style={{color:T.text,fontWeight:“900”,fontSize:“20px”}}>{AM[selMonth]}</div>
+<div style={{color:T.gold,fontSize:“13px”,fontWeight:“700”}}>{selYear}</div>
+</div>
+<button onClick={next} style={{background:“none”,border:`1px solid ${T.gold}33`,borderRadius:“10px”,width:“38px”,height:“38px”,color:T.gold,fontSize:“18px”,cursor:“pointer”,display:“flex”,alignItems:“center”,justifyContent:“center”}}>›</button>
+</div>
+<div style={{display:“flex”,gap:“6px”,justifyContent:“center”,flexWrap:“wrap”}}>
+{years.map(y=>(
+<button key={y} onClick={()=>setSelYear(y)} style={{padding:“3px 12px”,borderRadius:“20px”,border:“none”,background:y===selYear?`linear-gradient(135deg,${T.gold},${T.gold2})`:T.card,color:y===selYear?”#0f1923”:T.sub,fontWeight:“700”,fontSize:“12px”,cursor:“pointer”,outline:y===selYear?“none”:`1px solid ${T.border}`}}>{y}</button>
+))}
+</div>
+</div>
+);
+}
+
+// ─── MINI CALENDAR (inside form) ──────────────────────
+function MiniCalendar({bookings,excludeId,selStart,selEnd,onStart,onEnd}){
+const T=useT();
+const now=new Date();
+const [cy,setCy]=useState(now.getFullYear());
+const [cm,setCm]=useState(now.getMonth());
+const first=new Date(cy,cm,1).getDay();
+const days=new Date(cy,cm+1,0).getDate();
+const prevM=()=>{if(cm===0){setCm(11);setCy(y=>y-1);}else setCm(m=>m-1);};
+const nextM=()=>{if(cm===11){setCm(0);setCy(y=>y+1);}else setCm(m=>m+1);};
+const ds=d=>`${cy}-${String(cm+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+const booked=d=>bookings.filter(b=>{if(b.id===excludeId||b.confirmed)return false;const s=ds(d);return s>=b.startDate&&s<=(b.endDate||b.startDate);});
+const inSel=d=>{const s=ds(d);if(selStart&&selEnd)return s>=selStart&&s<=selEnd;return s===selStart;};
+const press=d=>{
+const bks=booked(d); if(bks.length>0) return;
+const s=ds(d);
+if(!selStart||(selStart&&selEnd)){onStart(s);onEnd(””);}
+else{if(s<selStart){onStart(s);onEnd(””);}else{onEnd(s);}}
+};
+return(
+<div style={{background:T.card2,borderRadius:“14px”,padding:“12px”,marginBottom:“12px”,border:`1px solid ${T.gold}33`}}>
+<div style={{display:“flex”,alignItems:“center”,justifyContent:“space-between”,marginBottom:“8px”}}>
+<button onClick={prevM} style={{background:“none”,border:“none”,color:T.gold,fontSize:“20px”,cursor:“pointer”,padding:“4px 10px”}}>‹</button>
+<div style={{color:T.text,fontWeight:“700”,fontSize:“14px”}}>{AM[cm]} {cy}</div>
+<button onClick={nextM} style={{background:“none”,border:“none”,color:T.gold,fontSize:“20px”,cursor:“pointer”,padding:“4px 10px”}}>›</button>
+</div>
+<div style={{display:“grid”,gridTemplateColumns:“repeat(7,1fr)”,gap:“2px”,marginBottom:“4px”}}>
+{DAR.map(d=><div key={d} style={{textAlign:“center”,color:T.sub2,fontSize:“9px”,fontWeight:“700”}}>{d[0]}</div>)}
+</div>
+<div style={{display:“grid”,gridTemplateColumns:“repeat(7,1fr)”,gap:“2px”}}>
+{Array.from({length:first}).map((*,i)=><div key={“e”+i}/>)}
+{Array.from({length:days}).map((*,i)=>{
+const d=i+1, bks=booked(d), isB=bks.length>0;
+const s=ds(d), isSel=inSel(d), isS=s===selStart, isE=s===selEnd, isTd=s===todayStr();
+const bg=isB?”#cc1111”:isS||isE?T.gold:isSel?T.gold+“44”:T.card;
+const textCol=isB?“white”:isS||isE?”#0f1923”:isTd&&!isSel?T.gold:T.text;
+return(
+<div key={d} onClick={()=>press(d)} style={{background:bg,border:isTd&&!isB&&!isSel?`2px solid ${T.gold}`:`1px solid ${isB?"#ff3333":T.border}33`,borderRadius:“6px”,padding:“3px 1px”,minHeight:“38px”,textAlign:“center”,cursor:isB?“not-allowed”:“pointer”,boxShadow:isB?“0 0 6px #ff333344”:“none”}}>
+<div style={{color:textCol,fontWeight:“700”,fontSize:“11px”,lineHeight:“14px”}}>{d}</div>
+{isB&&<div style={{fontSize:“8px”,color:“white”,fontWeight:“700”,overflow:“hidden”,textOverflow:“ellipsis”,whiteSpace:“nowrap”,padding:“0 1px”,lineHeight:“12px”}}>{bks[0].name||“محجوز”}</div>}
+</div>
+);
+})}
+</div>
+<div style={{display:“flex”,gap:“8px”,marginTop:“8px”,flexWrap:“wrap”}}>
+{[{c:”#cc1111”,l:“محجوز”},{c:T.gold,l:“مختار”},{c:T.gold+“44”,l:“الفترة”}].map((x,i)=>(
+<div key={i} style={{display:“flex”,alignItems:“center”,gap:“3px”}}>
+<div style={{width:“10px”,height:“10px”,borderRadius:“2px”,background:x.c}}/>
+<span style={{color:T.sub,fontSize:“9px”}}>{x.l}</span>
+</div>
+))}
+</div>
+</div>
+);
+}
+
+// ─── CALENDAR SCREEN ──────────────────────────────────
+function CalendarView({bookings,onBack}){
+const T=useT();
+const now=new Date();
+const [sy,setSy]=useState(now.getFullYear());
+const [sm,setSm]=useState(now.getMonth());
+const years=[…new Set([…bookings.map(b=>b.startDate?.substring(0,4)).filter(Boolean),String(now.getFullYear())])].map(Number).sort();
+const first=new Date(sy,sm,1).getDay();
+const days=new Date(sy,sm+1,0).getDate();
+const ds=d=>`${sy}-${String(sm+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+const bForDay=d=>bookings.filter(b=>{const s=ds(d);return s>=b.startDate&&s<=(b.endDate||b.startDate)&&!b.confirmed;});
+return(
+<div style={{minHeight:“100vh”,background:T.bg,backgroundImage:T.radial,fontFamily:”‘Segoe UI’,Tahoma,sans-serif”,direction:“rtl”}}>
+<SubHeader title="التقويم" sub="الأيام المتاحة وغير المتاحة" onBack={onBack}/>
+<div style={{padding:“16px”}}>
+<MonthPicker selYear={sy} selMonth={sm} setSelYear={setSy} setSelMonth={setSm} years={years}/>
+<div style={{display:“flex”,gap:“10px”,marginBottom:“14px”,flexWrap:“wrap”}}>
+{[{c:”#cc1111”,l:“محجوز”},{c:T.gold,l:“اليوم”},{c:T.border,l:“متاح”}].map((l,i)=>(
+<div key={i} style={{display:“flex”,alignItems:“center”,gap:“5px”}}>
+<div style={{width:“14px”,height:“14px”,borderRadius:“4px”,background:l.c}}/>
+<span style={{color:T.sub,fontSize:“12px”}}>{l.l}</span>
+</div>
+))}
+</div>
+<div style={{display:“grid”,gridTemplateColumns:“repeat(7,1fr)”,gap:“3px”,marginBottom:“3px”}}>
+{DAR.map(d=><div key={d} style={{textAlign:“center”,color:T.sub,fontSize:“11px”,padding:“4px 0”,fontWeight:“600”}}>{d}</div>)}
+</div>
+<div style={{display:“grid”,gridTemplateColumns:“repeat(7,1fr)”,gap:“3px”}}>
+{Array.from({length:first}).map((*,i)=><div key={“e”+i}/>)}
+{Array.from({length:days}).map((*,i)=>{
+const d=i+1,bks=bForDay(d),isB=bks.length>0,isTd=ds(d)===todayStr();
+return(
+<div key={d} style={{background:isB?”#3a0000”:T.card,border:`2px solid ${isTd?T.gold:isB?"#ff3333":T.border}`,borderRadius:“8px”,padding:“4px 2px”,minHeight:“52px”,textAlign:“center”,cursor:isB?“not-allowed”:“default”,boxShadow:isB?“0 0 8px #ff333344”:“none”}}>
+<div style={{color:isTd?T.gold:isB?”#ff6666”:T.text,fontWeight:isTd?“900”:“600”,fontSize:“13px”}}>{d}</div>
+{isB&&(
+<div style={{marginTop:“2px”}}>
+{bks.slice(0,2).map(b=>(
+<div key={b.id} style={{background:”#cc2222”,borderRadius:“3px”,padding:“1px 3px”,fontSize:“8px”,color:“white”,fontWeight:“700”,marginTop:“1px”,overflow:“hidden”,textOverflow:“ellipsis”,whiteSpace:“nowrap”}}>{b.name||“محجوز”}</div>
+))}
+{bks.length>2&&<div style={{color:“white”,fontSize:“8px”,fontWeight:“700”,background:”#aa0000”,borderRadius:“3px”,marginTop:“1px”}}>+{bks.length-2}</div>}
+</div>
+)}
+</div>
+);
+})}
+</div>
+<div style={{marginTop:“16px”,background:T.card,border:`1px solid ${T.danger}33`,borderRadius:“14px”,padding:“14px”}}>
+<div style={{color:T.danger,fontWeight:“800”,fontSize:“14px”,marginBottom:“10px”}}>🔴 المحجوز هذا الشهر</div>
+{bookings.filter(b=>{const mk=`${sy}-${String(sm+1).padStart(2,"0")}`;return(b.startDate?.startsWith(mk)||b.endDate?.startsWith(mk))&&!b.confirmed;}).length===0
+?<div style={{color:T.sub2,fontSize:“13px”,textAlign:“center”}}>لا توجد حجوزات</div>
+:bookings.filter(b=>{const mk=`${sy}-${String(sm+1).padStart(2,"0")}`;return(b.startDate?.startsWith(mk)||b.endDate?.startsWith(mk))&&!b.confirmed;}).map(b=>(
+<div key={b.id} style={{display:“flex”,justifyContent:“space-between”,padding:“8px 0”,borderBottom:`1px solid ${T.border}`}}>
+<div><div style={{color:T.text,fontSize:“13px”,fontWeight:“600”}}>{b.name||“بدون اسم”}</div><div style={{color:T.sub,fontSize:“11px”}}>{b.startDate} → {b.endDate||b.startDate}</div></div>
+<div style={{color:T.gold,fontSize:“12px”,fontWeight:“700”}}>{dur(b.startDate,b.endDate||b.startDate)} أيام</div>
+</div>
+))
+}
+</div>
+</div>
+</div>
+);
+}
+
+// ─── FULL REPORT ──────────────────────────────────────
+function FullReport({bookings,onBack}){
+const T=useT();
+const [filter,setFilter]=useState(“all”);
+const filtered=bookings.filter(b=>{
+if(filter===“confirmed”) return b.confirmed;
+if(filter===“pending”)   return !b.confirmed&&!isPast(b.endDate||b.startDate);
+if(filter===“past”)      return isPast(b.endDate||b.startDate)&&!b.confirmed;
+if(filter===“fullpaid”)  return Math.max(0,b.totalAmount-b.paidAmount)===0&&!b.confirmed;
+return true;
+}).sort((a,b)=>a.startDate.localeCompare(b.startDate));
+const tAll=filtered.reduce((s,b)=>s+(b.totalAmount||0),0),tPaid=filtered.reduce((s,b)=>s+(b.paidAmount||0),0),tRem=filtered.reduce((s,b)=>s+Math.max(0,b.totalAmount-b.paidAmount),0);
+return(
+<div style={{minHeight:“100vh”,background:T.bg,backgroundImage:T.radial,fontFamily:”‘Segoe UI’,Tahoma,sans-serif”,direction:“rtl”}}>
+<SubHeader title=“تقرير الحجوزات الكامل” sub={`${filtered.length} حجز`} onBack={onBack}/>
+<div style={{padding:“16px”}}>
+<div style={{display:“flex”,gap:“6px”,marginBottom:“14px”,flexWrap:“wrap”}}>
+{[{k:“all”,l:“الكل”},{k:“pending”,l:“🕐 جارية”},{k:“confirmed”,l:“✅ مكتملة”},{k:“fullpaid”,l:“💰 مدفوع”},{k:“past”,l:“⏰ منتهية”}].map(t=>(
+<button key={t.k} onClick={()=>setFilter(t.k)} style={{padding:“7px 12px”,borderRadius:“20px”,border:“none”,background:filter===t.k?`linear-gradient(135deg,${T.gold},${T.gold2})`:T.card2,color:filter===t.k?”#0f1923”:T.sub,fontWeight:“700”,fontSize:“12px”,cursor:“pointer”,outline:filter===t.k?“none”:`1px solid ${T.border}`}}>{t.l}</button>
+))}
+</div>
+<div style={{display:“grid”,gridTemplateColumns:“1fr 1fr 1fr”,gap:“8px”,marginBottom:“14px”}}>
+{[{l:“الإجمالي”,v:fc(tAll),c:T.gold},{l:“المحصّل”,v:fc(tPaid),c:T.green},{l:“المتبقي”,v:fc(tRem),c:T.danger}].map((s,i)=>(
+<div key={i} style={{background:T.card,border:`1px solid ${s.c}33`,borderRadius:“12px”,padding:“12px 8px”,textAlign:“center”}}>
+<div style={{color:s.c,fontWeight:“800”,fontSize:“13px”}}>{s.v}</div>
+<div style={{color:T.sub,fontSize:“10px”,marginTop:“3px”}}>{s.l}</div>
+</div>
+))}
+</div>
+{filtered.length===0?<div style={{textAlign:“center”,padding:“40px 0”,color:T.sub}}>لا توجد حجوزات</div>
+:filtered.map((b,i)=>{
+const endD=b.endDate||b.startDate,rem=Math.max(0,b.totalAmount-b.paidAmount),col=bColor(b,T);
+return(
+<div key={b.id} style={{background:col.bg,border:`2px solid ${col.border}`,borderRadius:“14px”,padding:“14px”,marginBottom:“10px”}}>
+<div style={{display:“flex”,justifyContent:“space-between”,alignItems:“flex-start”,marginBottom:“8px”}}>
+<div><div style={{color:T.text,fontWeight:“700”,fontSize:“14px”}}>{b.name||“بدون اسم”}</div>{b.phone&&<div style={{color:T.sub,fontSize:“11px”}}>📱 {b.phone}</div>}</div>
+<div style={{display:“flex”,flexDirection:“column”,alignItems:“flex-end”,gap:“3px”}}>
+<span style={{fontSize:“11px”,fontWeight:“700”,color:col.border,background:col.lbg,padding:“3px 8px”,borderRadius:“20px”,border:`1px solid ${col.border}44`}}>{col.label}</span>
+<span style={{color:T.sub,fontSize:“10px”}}>#{i+1}</span>
+</div>
+</div>
+<div style={{background:T.card,borderRadius:“8px”,padding:“8px 12px”,marginBottom:“8px”,display:“flex”,justifyContent:“space-between”,alignItems:“center”}}>
+<div><div style={{color:T.sub,fontSize:“10px”}}>مدة الحجز</div><div style={{color:T.gold,fontSize:“12px”,fontWeight:“700”}}>📅 {b.startDate} → {endD}</div></div>
+<div style={{background:`${T.gold}22`,border:`1px solid ${T.gold}44`,borderRadius:“8px”,padding:“6px 12px”,textAlign:“center”}}>
+<div style={{color:T.gold,fontWeight:“900”,fontSize:“18px”,lineHeight:1}}>{dur(b.startDate,endD)}</div>
+<div style={{color:T.sub,fontSize:“10px”}}>أيام</div>
+</div>
+</div>
+<div style={{display:“grid”,gridTemplateColumns:“1fr 1fr 1fr”,gap:“6px”}}>
+{[{l:“الإجمالي”,v:fc(b.totalAmount),c:T.gold},{l:“المحصّل”,v:fc(b.paidAmount),c:T.green},{l:“المتبقي”,v:rem>0?fc(rem):“✓”,c:rem>0?T.danger:T.green}].map((x,j)=>(
+<div key={j} style={{background:T.card,borderRadius:“8px”,padding:“7px”,textAlign:“center”}}>
+<div style={{color:T.sub,fontSize:“10px”}}>{x.l}</div>
+<div style={{color:x.c,fontWeight:“700”,fontSize:“12px”}}>{x.v}</div>
+</div>
+))}
+</div>
+<div style={{background:T.border,borderRadius:“4px”,height:“4px”,marginTop:“10px”}}>
+<div style={{height:“100%”,borderRadius:“4px”,background:rem===0?T.green:`linear-gradient(90deg,${T.green},${T.gold})`,width:`${Math.min(100,b.totalAmount>0?(b.paidAmount/b.totalAmount)*100:0)}%`}}/>
+</div>
+</div>
+);
+})
+}
+</div>
+</div>
+);
+}
+
+// ─── EXPENSES REPORT ──────────────────────────────────
+function ExpensesReport({expenses,bookings,onBack}){
+const T=useT();
+const now=new Date();
+const [sy,setSy]=useState(now.getFullYear());
+const [sm,setSm]=useState(now.getMonth());
+const mk=`${sy}-${String(sm+1).padStart(2,"0")}`;
+const mExp=expenses.filter(e=>e.date?.startsWith(mk)).sort((a,b)=>a.date.localeCompare(b.date));
+const mBk=bookings.filter(b=>b.confirmed&&mKey(b.startDate)===mk);
+const tExp=mExp.reduce((s,e)=>s+(e.amount||0),0),tInc=mBk.reduce((s,b)=>s+(b.paidAmount||0),0),net=tInc-tExp;
+const allYears=[…new Set([…expenses.map(e=>e.date?.substring(0,4)),…bookings.map(b=>b.startDate?.substring(0,4)),String(now.getFullYear())].filter(Boolean))].map(Number).sort();
+return(
+<div style={{minHeight:“100vh”,background:T.bg,backgroundImage:T.radial,fontFamily:”‘Segoe UI’,Tahoma,sans-serif”,direction:“rtl”}}>
+<SubHeader title="التقرير الشهري" sub="المصروفات والإيرادات" onBack={onBack}/>
+<div style={{padding:“16px”}}>
+<MonthPicker selYear={sy} selMonth={sm} setSelYear={setSy} setSelMonth={setSm} years={allYears}/>
+<div style={{display:“grid”,gridTemplateColumns:“1fr 1fr 1fr”,gap:“8px”,marginBottom:“14px”}}>
+{[{i:“💰”,l:“الإيرادات”,v:fc(tInc),c:T.green},{i:“💸”,l:“المصروفات”,v:fc(tExp),c:T.danger},{i:net>=0?“📈”:“📉”,l:“صافي الربح”,v:fc(net),c:net>=0?T.green:T.danger}].map((s,i)=>(
+<div key={i} style={{background:T.card,border:`1px solid ${s.c}33`,borderRadius:“12px”,padding:“12px 8px”,textAlign:“center”}}>
+<div style={{fontSize:“20px”,marginBottom:“4px”}}>{s.i}</div>
+<div style={{color:s.c,fontWeight:“800”,fontSize:“13px”}}>{s.v}</div>
+<div style={{color:T.sub,fontSize:“10px”,marginTop:“3px”}}>{s.l}</div>
+</div>
+))}
+</div>
+<div style={{background:T.card,border:`1px solid ${T.green}33`,borderRadius:“14px”,padding:“16px”,marginBottom:“14px”}}>
+<div style={{color:T.green,fontWeight:“800”,fontSize:“14px”,marginBottom:“12px”}}>✅ الإيرادات ({mBk.length})</div>
+{mBk.length===0?<div style={{color:T.sub2,fontSize:“13px”,textAlign:“center”}}>لا توجد</div>
+:mBk.map((b,i)=>(
+<div key={b.id} style={{display:“flex”,justifyContent:“space-between”,padding:“8px 0”,borderBottom:i<mBk.length-1?`1px solid ${T.border}`:“none”}}>
+<div><div style={{color:T.text,fontSize:“13px”}}>{b.name||“عميل”}</div><div style={{color:T.sub,fontSize:“11px”}}>{b.startDate} → {b.endDate||b.startDate}</div></div>
+<div style={{color:T.green,fontWeight:“800”}}>{fc(b.paidAmount)}</div>
+</div>
+))}
+{mBk.length>0&&<div style={{display:“flex”,justifyContent:“space-between”,marginTop:“10px”,paddingTop:“10px”,borderTop:`1px solid ${T.gold}33`}}><span style={{color:T.gold,fontWeight:“700”,fontSize:“13px”}}>الإجمالي</span><span style={{color:T.green,fontWeight:“900”,fontSize:“15px”}}>{fc(tInc)}</span></div>}
+</div>
+<div style={{background:T.card,border:`1px solid ${T.danger}33`,borderRadius:“14px”,padding:“16px”,marginBottom:“14px”}}>
+<div style={{color:T.danger,fontWeight:“800”,fontSize:“14px”,marginBottom:“12px”}}>💸 المصروفات ({mExp.length})</div>
+{mExp.length===0?<div style={{color:T.sub2,fontSize:“13px”,textAlign:“center”}}>لا توجد</div>
+:mExp.map((e,i)=>(
+<div key={e.id} style={{display:“flex”,justifyContent:“space-between”,padding:“8px 0”,borderBottom:i<mExp.length-1?`1px solid ${T.border}`:“none”}}>
+<div><div style={{color:T.text,fontSize:“13px”}}>{e.name}</div><div style={{color:T.sub,fontSize:“11px”}}>{e.date}</div></div>
+<div style={{color:T.danger,fontWeight:“800”}}>{fc(e.amount)}</div>
+</div>
+))}
+{mExp.length>0&&<div style={{display:“flex”,justifyContent:“space-between”,marginTop:“10px”,paddingTop:“10px”,borderTop:`1px solid ${T.gold}33`}}><span style={{color:T.gold,fontWeight:“700”,fontSize:“13px”}}>الإجمالي</span><span style={{color:T.danger,fontWeight:“900”,fontSize:“15px”}}>{fc(tExp)}</span></div>}
+</div>
+<div style={{background:`linear-gradient(135deg,${T.card},${T.card2})`,border:`2px solid ${net>=0?T.green:T.danger}66`,borderRadius:“16px”,padding:“18px”,marginBottom:“40px”}}>
+<div style={{color:T.gold,fontWeight:“800”,fontSize:“15px”,marginBottom:“14px”,textAlign:“center”,borderBottom:`1px solid ${T.gold}22`,paddingBottom:“10px”}}>📊 ملخص {AM[sm]} {sy}</div>
+{[{l:“إجمالي الإيرادات”,v:fc(tInc),c:T.green},{l:“إجمالي المصروفات”,v:fc(tExp),c:T.danger},{l:“صافي الربح”,v:fc(net),c:net>=0?T.green:T.danger,big:true}].map((r,i)=>(
+<div key={i} style={{display:“flex”,justifyContent:“space-between”,padding:“10px 0”,borderBottom:i<2?`1px solid ${T.border}`:“none”}}>
+<span style={{color:T.sub,fontSize:“13px”}}>{r.l}</span>
+<span style={{color:r.c,fontWeight:“900”,fontSize:r.big?“18px”:“14px”}}>{r.v}</span>
+</div>
+))}
+</div>
+</div>
+</div>
+);
+}
+
+// ─── EXPENSES SCREEN ──────────────────────────────────
+function ExpensesScreen({expenses,setExpenses,bookings,onBack}){
+const T=useT();
+const [screen,setScreen]=useState(“list”);
+const [showForm,setShowForm]=useState(false);
+const [editId,setEditId]=useState(null);
+const [deleteId,setDeleteId]=useState(null);
+const [form,setForm]=useState({name:””,amount:””,date:todayStr()});
+useEffect(()=>{try{localStorage.setItem(SK_E,JSON.stringify(expenses));}catch{}},[expenses]);
+const save=()=>{
+if(!form.name||!form.amount||!form.date) return;
+const prev=expenses.find(e=>e.id===editId);
+const entry={id:editId||Date.now().toString(),name:form.name,amount:parseFloat(form.amount)||0,date:form.date,createdAt:prev?.createdAt||Date.now()};
+setExpenses(p=>editId?p.map(e=>e.id===editId?entry:e):[…p,entry]);
+setForm({name:””,amount:””,date:todayStr()}); setEditId(null); setShowForm(false);
+};
+if(screen===“report”) return <ExpensesReport expenses={expenses} bookings={bookings} onBack={()=>setScreen(“list”)}/>;
+const sorted=[…expenses].sort((a,b)=>b.date.localeCompare(a.date));
+const totalAll=expenses.reduce((s,e)=>s+(e.amount||0),0);
+const inp2={background:T.inputBg,border:`1px solid ${T.gold}44`,borderRadius:“10px”,color:T.inputText,padding:“12px 14px”,width:“100%”,fontSize:“15px”,outline:“none”,boxSizing:“border-box”,fontFamily:“inherit”,direction:“rtl”};
+const lbl2={color:T.gold,fontSize:“13px”,marginBottom:“6px”,display:“block”,fontWeight:“600”};
+return(
+<div style={{minHeight:“100vh”,background:T.bg,backgroundImage:T.radial,fontFamily:”‘Segoe UI’,Tahoma,sans-serif”,direction:“rtl”}}>
+<SubHeader title=“المصروفات” sub=“BMZ”
+onBack={onBack}
+rightBtn={<div style={{display:“flex”,gap:“8px”}}>
+<button onClick={()=>setScreen(“report”)} style={{background:T.card2,border:`1px solid ${T.gold}44`,borderRadius:“10px”,padding:“9px 13px”,color:T.gold,fontWeight:“700”,fontSize:“13px”,cursor:“pointer”}}>📊</button>
+<button onClick={()=>{setForm({name:””,amount:””,date:todayStr()});setEditId(null);setShowForm(true);}} style={{background:`linear-gradient(135deg,${T.gold},${T.gold2})`,border:“none”,borderRadius:“10px”,padding:“9px 14px”,color:”#0f1923”,fontWeight:“800”,fontSize:“14px”,cursor:“pointer”}}>+ مصروف</button>
+</div>}
+/>
+<div style={{padding:“16px 16px 0”}}>
+<div style={{background:T.card,border:`1px solid ${T.danger}44`,borderRadius:“14px”,padding:“16px”,display:“grid”,gridTemplateColumns:“1fr 1fr”,gap:“12px”}}>
+<div style={{textAlign:“center”}}><div style={{color:T.sub,fontSize:“12px”}}>إجمالي</div><div style={{color:T.danger,fontWeight:“900”,fontSize:“20px”,marginTop:“4px”}}>{fc(totalAll)}</div></div>
+<div style={{textAlign:“center”}}><div style={{color:T.sub,fontSize:“12px”}}>السجلات</div><div style={{color:T.gold,fontWeight:“900”,fontSize:“20px”,marginTop:“4px”}}>{expenses.length}</div></div>
+</div>
+</div>
+<div style={{padding:“14px 16px 100px”}}>
+{sorted.length===0?<div style={{textAlign:“center”,padding:“60px 0”,color:T.sub}}><div style={{fontSize:“48px”}}>💸</div><div>لا توجد مصروفات</div></div>
+:sorted.map(e=>(
+<div key={e.id} style={{background:T.cardBg,border:`1px solid ${T.border}`,borderRadius:“14px”,padding:“14px”,marginBottom:“10px”,display:“flex”,justifyContent:“space-between”,alignItems:“center”}}>
+<div><div style={{color:T.text,fontWeight:“700”,fontSize:“15px”}}>{e.name}</div><div style={{color:T.sub,fontSize:“12px”,marginTop:“3px”}}>📅 {e.date}</div></div>
+<div style={{display:“flex”,alignItems:“center”,gap:“10px”}}>
+<div style={{color:T.danger,fontWeight:“900”,fontSize:“16px”}}>{fc(e.amount)}</div>
+<div style={{display:“flex”,flexDirection:“column”,gap:“4px”}}>
+<button onClick={()=>{setForm({name:e.name,amount:e.amount,date:e.date});setEditId(e.id);setShowForm(true);}} style={{background:T.card2,border:`1px solid ${T.gold}44`,borderRadius:“6px”,padding:“5px 10px”,color:T.gold,fontSize:“12px”,cursor:“pointer”}}>✏️</button>
+<button onClick={()=>setDeleteId(e.id)} style={{background:T.dangerBg,border:`1px solid ${T.danger}33`,borderRadius:“6px”,padding:“5px 10px”,color:T.danger,fontSize:“12px”,cursor:“pointer”}}>🗑️</button>
+</div>
+</div>
+</div>
+))}
+</div>
+<Modal open={showForm} onClose={()=>setShowForm(false)}>
+<div style={{color:T.gold,fontSize:“19px”,fontWeight:“800”,marginBottom:“20px”,textAlign:“center”}}>{editId?“✏️ تعديل”:“➕ مصروف جديد”}</div>
+<div style={{marginBottom:“14px”}}><label style={lbl2}>اسم المصروف</label><input type=“text” placeholder=“مثال: صيانة…” value={form.name} onChange={e=>setForm(p=>({…p,name:e.target.value}))} style={inp2}/></div>
+<div style={{marginBottom:“14px”}}><label style={lbl2}>المبلغ</label><input type=“number” placeholder=“0” value={form.amount} onChange={e=>setForm(p=>({…p,amount:e.target.value}))} style={inp2}/></div>
+<div style={{marginBottom:“20px”}}><label style={lbl2}>التاريخ</label><input type=“date” value={form.date} onChange={e=>setForm(p=>({…p,date:e.target.value}))} style={inp2}/></div>
+<div style={{display:“flex”,gap:“10px”}}>
+<button onClick={save} style={{flex:1,padding:“14px”,borderRadius:“12px”,border:“none”,background:`linear-gradient(135deg,${T.gold},${T.gold2})`,color:”#0f1923”,fontWeight:“800”,fontSize:“15px”,cursor:“pointer”}}>حفظ</button>
+<button onClick={()=>setShowForm(false)} style={{flex:1,padding:“14px”,borderRadius:“12px”,border:`1px solid ${T.border}`,background:T.card2,color:T.sub,fontSize:“15px”,cursor:“pointer”}}>إلغاء</button>
+</div>
+</Modal>
+<Modal open={!!deleteId} onClose={()=>setDeleteId(null)}>
+<div style={{textAlign:“center”}}>
+<div style={{fontSize:“52px”,marginBottom:“16px”}}>🗑️</div>
+<div style={{color:T.text,fontSize:“18px”,fontWeight:“700”,marginBottom:“24px”}}>حذف المصروف؟</div>
+<div style={{display:“flex”,gap:“10px”}}>
+<button onClick={()=>{setExpenses(p=>p.filter(e=>e.id!==deleteId));setDeleteId(null);}} style={{flex:1,padding:“14px”,borderRadius:“12px”,border:“none”,background:“linear-gradient(135deg,#5a1a1a,#c62828)”,color:“white”,fontWeight:“800”,fontSize:“15px”,cursor:“pointer”}}>حذف</button>
+<button onClick={()=>setDeleteId(null)} style={{flex:1,padding:“14px”,borderRadius:“12px”,border:`1px solid ${T.border}`,background:T.card2,color:T.sub,fontSize:“15px”,cursor:“pointer”}}>إلغاء</button>
+</div>
+</div>
+</Modal>
+<style>{`input[type="date"]::-webkit-calendar-picker-indicator{filter:${T===THEMES.light?"none":"invert(0.7) sepia(1) saturate(3) hue-rotate(5deg)"};}input::placeholder{color:${T.sub2};}*{-webkit-tap-highlight-color:transparent;}`}</style>
+</div>
+);
+}
+
+// ─── BOOKINGS MONTHLY REPORT ──────────────────────────
+function BookingsMonthlyReport({bookings,onBack}){
+const T=useT();
+const now=new Date();
+const [sy,setSy]=useState(now.getFullYear());
+const [sm,setSm]=useState(now.getMonth());
+const mk=`${sy}-${String(sm+1).padStart(2,"0")}`;
+const mb=bookings.filter(b=>mKey(b.startDate)===mk).sort((a,b)=>a.startDate.localeCompare(b.startDate));
+const tAmt=mb.reduce((s,b)=>s+(b.totalAmount||0),0),tPaid=mb.reduce((s,b)=>s+(b.paidAmount||0),0),tRem=mb.reduce((s,b)=>s+Math.max(0,b.totalAmount-b.paidAmount),0);
+const confirmed=mb.filter(b=>b.confirmed).length,tDays=mb.reduce((s,b)=>s+dur(b.startDate,b.endDate||b.startDate),0);
+const rate=tAmt>0?Math.round((tPaid/tAmt)*100):0;
+const years=[…new Set(bookings.map(b=>b.startDate?.substring(0,4)).filter(Boolean))].map(Number).sort();
+if(!years.includes(sy)) years.push(sy);
+return(
+<div style={{minHeight:“100vh”,background:T.bg,backgroundImage:T.radial,fontFamily:”‘Segoe UI’,Tahoma,sans-serif”,direction:“rtl”}}>
+<SubHeader title="التقرير الشهري" sub="الحجوزات" onBack={onBack}/>
+<div style={{padding:“16px”}}>
+<MonthPicker selYear={sy} selMonth={sm} setSelYear={setSy} setSelMonth={setSm} years={years}/>
+{mb.length===0?<div style={{textAlign:“center”,padding:“60px 0”,color:T.sub}}><div style={{fontSize:“48px”}}>📊</div><div>لا توجد حجوزات</div></div>
+:<>
+<div style={{display:“grid”,gridTemplateColumns:“1fr 1fr 1fr”,gap:“8px”,marginBottom:“8px”}}>
+{[{i:“💰”,l:“الإجمالي”,v:fc(tAmt),c:T.gold},{i:“✅”,l:“المحصّل”,v:fc(tPaid),c:T.green},{i:“⏳”,l:“المتبقي”,v:fc(tRem),c:T.danger}].map((s,i)=>(
+<div key={i} style={{background:T.card,border:`1px solid ${s.c}33`,borderRadius:“12px”,padding:“12px 8px”,textAlign:“center”}}>
+<div style={{fontSize:“18px”,marginBottom:“4px”}}>{s.i}</div>
+<div style={{color:s.c,fontWeight:“800”,fontSize:“13px”}}>{s.v}</div>
+<div style={{color:T.sub,fontSize:“10px”,marginTop:“3px”}}>{s.l}</div>
+</div>
+))}
+</div>
+<div style={{display:“grid”,gridTemplateColumns:“1fr 1fr 1fr 1fr”,gap:“8px”,marginBottom:“14px”}}>
+{[{i:“📋”,l:“الحجوزات”,v:mb.length,c:T.blue},{i:“✓”,l:“مكتملة”,v:confirmed,c:T.green},{i:“🕐”,l:“جارية”,v:mb.length-confirmed,c:T.amber},{i:“🌙”,l:“الأيام”,v:tDays,c:”#ce93d8”}].map((s,i)=>(
+<div key={i} style={{background:T.card,border:`1px solid ${s.c}33`,borderRadius:“10px”,padding:“10px 6px”,textAlign:“center”}}>
+<div style={{fontSize:“16px”,marginBottom:“3px”}}>{s.i}</div>
+<div style={{color:s.c,fontWeight:“800”,fontSize:“15px”}}>{s.v}</div>
+<div style={{color:T.sub,fontSize:“10px”,marginTop:“2px”}}>{s.l}</div>
+</div>
+))}
+</div>
+<div style={{background:T.card,border:`1px solid ${T.gold}22`,borderRadius:“14px”,padding:“14px 16px”,marginBottom:“14px”}}>
+<div style={{display:“flex”,justifyContent:“space-between”,marginBottom:“8px”}}>
+<span style={{color:T.sub,fontSize:“13px”}}>نسبة التحصيل</span>
+<span style={{color:rate>=80?T.green:rate>=50?T.amber:T.danger,fontWeight:“800”,fontSize:“17px”}}>{rate}%</span>
+</div>
+<div style={{background:T.border,borderRadius:“8px”,height:“10px”}}>
+<div style={{height:“100%”,borderRadius:“8px”,background:rate>=80?`linear-gradient(90deg,#2e7d32,${T.green})`:rate>=50?`linear-gradient(90deg,#e65100,${T.amber})`:`linear-gradient(90deg,#b71c1c,${T.danger})`,width:`${rate}%`,transition:“width 0.6s”}}/>
+</div>
+</div>
+{mb.map((b,i)=>{
+const endD=b.endDate||b.startDate,rem=Math.max(0,b.totalAmount-b.paidAmount),d=dur(b.startDate,endD),col=bColor(b,T);
+return(
+<div key={b.id} style={{background:col.bg,border:`2px solid ${col.border}`,borderRadius:“14px”,padding:“14px”,marginBottom:“10px”}}>
+<div style={{display:“flex”,justifyContent:“space-between”,marginBottom:“8px”}}>
+<div><div style={{color:T.text,fontWeight:“700”,fontSize:“14px”}}>{b.name||“بدون اسم”}</div>{b.phone&&<div style={{color:T.sub,fontSize:“11px”}}>📱 {b.phone}</div>}</div>
+<span style={{fontSize:“11px”,fontWeight:“700”,color:col.border,background:col.lbg,padding:“3px 8px”,borderRadius:“20px”}}>{col.label}</span>
+</div>
+<div style={{display:“flex”,gap:“6px”,alignItems:“center”,marginBottom:“8px”,background:T.card,borderRadius:“8px”,padding:“6px 10px”}}>
+<span style={{color:T.gold,fontSize:“12px”}}>📅 {b.startDate} → {endD}</span>
+<span style={{marginRight:“auto”,background:`${T.gold}22`,border:`1px solid ${T.gold}44`,borderRadius:“6px”,padding:“2px 8px”,color:T.gold,fontSize:“11px”,fontWeight:“700”}}>{d} {d===1?“يوم”:“أيام”}</span>
+</div>
+<div style={{display:“grid”,gridTemplateColumns:“1fr 1fr 1fr”,gap:“6px”}}>
+{[{l:“الإجمالي”,v:fc(b.totalAmount),c:T.gold},{l:“المحصّل”,v:fc(b.paidAmount),c:T.green},{l:“المتبقي”,v:rem>0?fc(rem):“✓”,c:rem>0?T.danger:T.green}].map((x,j)=>(
+<div key={j} style={{background:T.card,borderRadius:“8px”,padding:“7px”,textAlign:“center”}}>
+<div style={{color:T.sub,fontSize:“10px”}}>{x.l}</div>
+<div style={{color:x.c,fontWeight:“700”,fontSize:“12px”}}>{x.v}</div>
+</div>
+))}
+</div>
+</div>
+);
+})}
+<div style={{background:`linear-gradient(135deg,${T.card},${T.card2})`,border:`2px solid ${T.gold}44`,borderRadius:“16px”,padding:“18px”,marginBottom:“40px”}}>
+<div style={{color:T.gold,fontWeight:“800”,fontSize:“15px”,marginBottom:“14px”,textAlign:“center”,borderBottom:`1px solid ${T.gold}22`,paddingBottom:“10px”}}>📊 إجمالي {AM[sm]} {sy}</div>
+{[{l:“إجمالي الحجوزات”,v:fc(tAmt),c:T.gold},{l:“المبالغ المحصّلة”,v:fc(tPaid),c:T.green},{l:“المبالغ المتبقية”,v:fc(tRem),c:tRem>0?T.danger:T.green},{l:“عدد الحجوزات”,v:`${mb.length} حجز`,c:T.blue},{l:“إجمالي الأيام”,v:`${tDays} يوم`,c:”#ce93d8”},{l:“نسبة التحصيل”,v:`${rate}%`,c:rate>=80?T.green:T.amber}].map((r,i)=>(
+<div key={i} style={{display:“flex”,justifyContent:“space-between”,padding:“8px 0”,borderBottom:i<5?`1px solid ${T.border}`:“none”}}>
+<span style={{color:T.sub,fontSize:“13px”}}>{r.l}</span>
+<span style={{color:r.c,fontWeight:“800”,fontSize:“14px”}}>{r.v}</span>
+</div>
+))}
+</div>
+</>
+}
+</div>
+</div>
+);
+}
+
+// ─── BOOKINGS SCREEN ──────────────────────────────────
+function BookingsScreen({bookings,setBookings,onBack}){
+const T=useT();
+const [screen,setScreen]=useState(“list”);
+const [showForm,setShowForm]=useState(false);
+const [editId,setEditId]=useState(null);
+const [confirmId,setConfirmId]=useState(null);
+const [deleteId,setDeleteId]=useState(null);
+const [waBook,setWaBook]=useState(null);
+const [activeTab,setActiveTab]=useState(“upcoming”);
+const [form,setForm]=useState({name:””,phone:””,startDate:””,endDate:””,totalAmount:””,paidAmount:””});
+const [dConf,setDConf]=useState([]);
+const [alerts,setAlerts]=useState([]);
+
+useEffect(()=>{try{localStorage.setItem(SK_B,JSON.stringify(bookings));}catch{} setAlerts(bookings.filter(b=>isTmrw(b.startDate,b.endDate)&&!b.confirmed));},[bookings]);
+useEffect(()=>{if(form.startDate&&form.endDate&&form.startDate<=form.endDate)setDConf(getConf(bookings,form.startDate,form.endDate,editId));else setDConf([]);},[form.startDate,form.endDate,bookings,editId]);
+
+const save=()=>{
+if(!form.startDate||!form.endDate||!form.totalAmount) return;
+if(form.startDate>form.endDate||dConf.length>0) return;
+const prev=bookings.find(b=>b.id===editId);
+const entry={id:editId||Date.now().toString(),name:form.name,phone:form.phone,startDate:form.startDate,endDate:form.endDate,totalAmount:parseFloat(form.totalAmount)||0,paidAmount:parseFloat(form.paidAmount)||0,confirmed:prev?.confirmed||false,createdAt:prev?.createdAt||Date.now()};
+setBookings(p=>editId?p.map(b=>b.id===editId?entry:b):[…p,entry]);
+setForm({name:””,phone:””,startDate:””,endDate:””,totalAmount:””,paidAmount:””}); setEditId(null); setShowForm(false);
+};
+
+// WhatsApp - open directly
+const openWA=(b)=>{
+const rem=Math.max(0,b.totalAmount-b.paidAmount);
+const name=b.name?`السلام عليكم ${b.name}،`:“السلام عليكم،”;
+const msg=`${name}\n\nتذكير بموعد حجزك:\n📅 من: ${b.startDate}\n📅 إلى: ${b.endDate||b.startDate}\n🌙 المدة: ${dur(b.startDate,b.endDate||b.startDate)} أيام\n\n💰 إجمالي المبلغ: ${fc(b.totalAmount)}\n✅ المبلغ المدفوع: ${fc(b.paidAmount)}\n${rem>0?`⏳ المبلغ المتبقي: ${fc(rem)}`:"✅ تم سداد المبلغ كاملاً"}\n\nشكراً لك 🙏`;
+const phone=b.phone?b.phone.replace(/\D/g,””):””;
+const url=phone?`https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(msg)}`:`https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`;
+window.location.href=url;
+};
+
+const tPaid=bookings.reduce((s,b)=>s+(b.paidAmount||0),0),tRem=bookings.reduce((s,b)=>s+Math.max(0,b.totalAmount-b.paidAmount),0),tAll=bookings.reduce((s,b)=>s+(b.totalAmount||0),0);
+const filtered=bookings.filter(b=>{if(activeTab===“upcoming”)return !isPast(b.endDate)&&!b.confirmed;if(activeTab===“past”)return isPast(b.endDate)||b.confirmed;return true;}).sort((a,b)=>a.startDate.localeCompare(b.startDate));
+const fDur=form.startDate&&form.endDate&&form.startDate<=form.endDate?dur(form.startDate,form.endDate):0;
+
+const inp2={background:T.inputBg,border:`1px solid ${T.gold}44`,borderRadius:“10px”,color:T.inputText,padding:“12px 14px”,width:“100%”,fontSize:“15px”,outline:“none”,boxSizing:“border-box”,fontFamily:“inherit”,direction:“rtl”};
+const lbl2={color:T.gold,fontSize:“13px”,marginBottom:“6px”,display:“block”,fontWeight:“600”};
+
+if(screen===“report”)      return <BookingsMonthlyReport bookings={bookings} onBack={()=>setScreen(“list”)}/>;
+if(screen===“fullreport”)  return <FullReport bookings={bookings} onBack={()=>setScreen(“list”)}/>;
+if(screen===“calendar”)    return <CalendarView bookings={bookings} onBack={()=>setScreen(“list”)}/>;
+
+return(
+<div style={{minHeight:“100vh”,background:T.bg,backgroundImage:T.radial,fontFamily:”‘Segoe UI’,Tahoma,sans-serif”,direction:“rtl”}}>
+<SubHeader title=“الحجوزات” sub=“BMZ”
+onBack={onBack}
+rightBtn={<div style={{display:“flex”,gap:“6px”}}>
+<button onClick={()=>setScreen(“calendar”)} style={{background:T.card2,border:`1px solid ${T.gold}44`,borderRadius:“10px”,padding:“9px 11px”,color:T.gold,fontWeight:“700”,fontSize:“13px”,cursor:“pointer”}}>📅</button>
+<button onClick={()=>setScreen(“fullreport”)} style={{background:T.card2,border:`1px solid ${T.gold}44`,borderRadius:“10px”,padding:“9px 11px”,color:T.gold,fontWeight:“700”,fontSize:“13px”,cursor:“pointer”}}>📋</button>
+<button onClick={()=>setScreen(“report”)} style={{background:T.card2,border:`1px solid ${T.gold}44`,borderRadius:“10px”,padding:“9px 11px”,color:T.gold,fontWeight:“700”,fontSize:“13px”,cursor:“pointer”}}>📊</button>
+<button onClick={()=>{setForm({name:””,phone:””,startDate:””,endDate:””,totalAmount:””,paidAmount:””});setEditId(null);setShowForm(true);}} style={{background:`linear-gradient(135deg,${T.gold},${T.gold2})`,border:“none”,borderRadius:“10px”,padding:“9px 14px”,color:”#0f1923”,fontWeight:“800”,fontSize:“14px”,cursor:“pointer”}}>+</button>
+</div>}
+/>
+
+```
+  {alerts.map(b=>(
+    <div key={b.id} style={{margin:"12px 16px 0",background:"linear-gradient(135deg,#2a1a00,#3a2500)",border:"1px solid #ff9800",borderRadius:"12px",padding:"14px 16px",display:"flex",alignItems:"center",gap:"10px",animation:"pulse 2s infinite"}}>
+      <span style={{fontSize:"22px"}}>🔔</span>
+      <div><div style={{color:"#ffb74d",fontWeight:"700",fontSize:"14px"}}>تنبيه موعد غداً</div><div style={{color:"#ffe0b2",fontSize:"13px"}}>{b.name||"عميل"} — غداً {b.startDate}</div></div>
+    </div>
+  ))}
+
+  {/* Color legend */}
+  <div style={{padding:"10px 16px 0",display:"flex",gap:"8px",flexWrap:"wrap"}}>
+    {[{c:T.green,l:"✓ مكتمل"},{c:T.blue,l:"💰 مدفوع"},{c:T.danger,l:"⏰ منتهي"},{c:T.gold,l:"🟡 جارٍ"},{c:T.amber,l:"⏳ متبقي"}].map((l,i)=>(
+      <div key={i} style={{display:"flex",alignItems:"center",gap:"4px"}}>
+        <div style={{width:"10px",height:"10px",borderRadius:"3px",background:l.c}}/>
+        <span style={{color:T.sub,fontSize:"10px"}}>{l.l}</span>
+      </div>
+    ))}
+  </div>
+
+  <div style={{padding:"12px 16px",display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"10px"}}>
+    {[{l:"إجمالي",v:fc(tAll),c:T.gold},{l:"الواصل",v:fc(tPaid),c:T.green},{l:"المتبقي",v:fc(tRem),c:T.danger}].map((s,i)=>(
+      <div key={i} style={{background:T.statBg,border:`1px solid ${s.c}44`,borderRadius:"14px",padding:"14px 10px",textAlign:"center"}}>
+        <div style={{color:s.c,fontSize:"13px",fontWeight:"800"}}>{s.v}</div>
+        <div style={{color:T.sub,fontSize:"10px",marginTop:"4px"}}>{s.l}</div>
+      </div>
+    ))}
+  </div>
+
+  <div style={{padding:"0 16px 12px",display:"flex",gap:"8px"}}>
+    {[{key:"upcoming",label:"القادمة"},{key:"past",label:"المنتهية"},{key:"all",label:"الكل"}].map(t=>(
+      <button key={t.key} onClick={()=>setActiveTab(t.key)} style={{flex:1,padding:"10px",borderRadius:"10px",border:activeTab===t.key?"none":`1px solid ${T.border}`,background:activeTab===t.key?`linear-gradient(135deg,${T.gold},${T.gold2})`:T.card,color:activeTab===t.key?"#0f1923":T.sub,fontWeight:"700",fontSize:"13px",cursor:"pointer"}}>{t.label}</button>
+    ))}
+  </div>
+
+  <div style={{padding:"0 16px 100px"}}>
+    {filtered.length===0?<div style={{textAlign:"center",padding:"60px 0",color:T.sub}}><div style={{fontSize:"48px"}}>📋</div><div>لا توجد حجوزات</div></div>
+      :filtered.map(b=>{
+        const endD=b.endDate||b.startDate,rem=Math.max(0,b.totalAmount-b.paidAmount),fp=rem===0;
+        const nc=(isPast(endD)||isNow(b.startDate,endD))&&!b.confirmed;
+        const d=dur(b.startDate,endD),col=bColor(b,T);
+        return(
+          <div key={b.id} style={{background:col.bg,border:`2px solid ${col.border}`,borderRadius:"16px",padding:"16px",marginBottom:"12px",position:"relative",overflow:"hidden"}}>
+            {col.label&&<div style={{position:"absolute",top:0,right:0,background:col.border,padding:"4px 12px",borderBottomLeftRadius:"10px",fontSize:"11px",color:"white",fontWeight:"700"}}>{col.label}</div>}
+            {isTmrw(b.startDate,endD)&&!b.confirmed&&<div style={{position:"absolute",top:0,right:0,background:"#ff9800",padding:"4px 12px",borderBottomLeftRadius:"10px",fontSize:"11px",color:"white",fontWeight:"700"}}>غداً 🔔</div>}
+
+            <div style={{marginBottom:"12px",paddingTop:col.label||isTmrw(b.startDate,endD)?"18px":"0"}}>
+              <div style={{color:T.text,fontWeight:"700",fontSize:"17px"}}>{b.name||<span style={{color:T.sub,fontStyle:"italic"}}>بدون اسم</span>}</div>
+              {b.phone&&<div style={{color:T.sub,fontSize:"13px",marginTop:"3px"}}>📱 {b.phone}</div>}
+            </div>
+
+            <div style={{background:T.card,borderRadius:"10px",padding:"10px 14px",marginBottom:"12px"}}>
+              <div style={{color:T.sub,fontSize:"11px",marginBottom:"6px"}}>مدة الحجز</div>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                <div style={{display:"flex",alignItems:"center",gap:"8px"}}>
+                  <div><div style={{color:T.sub2,fontSize:"10px"}}>من</div><div style={{color:T.gold,fontWeight:"700",fontSize:"13px"}}>📅 {b.startDate}</div></div>
+                  <div style={{color:T.border,fontSize:"18px"}}>→</div>
+                  <div><div style={{color:T.sub2,fontSize:"10px"}}>إلى</div><div style={{color:T.gold,fontWeight:"700",fontSize:"13px"}}>📅 {endD}</div></div>
+                </div>
+                <div style={{background:`${T.gold}22`,border:`1px solid ${T.gold}66`,borderRadius:"10px",padding:"8px 14px",textAlign:"center",minWidth:"52px"}}>
+                  <div style={{color:T.gold,fontWeight:"900",fontSize:"20px",lineHeight:1}}>{d}</div>
+                  <div style={{color:T.sub,fontSize:"10px",marginTop:"2px"}}>{d===1?"يوم":"أيام"}</div>
+                </div>
+              </div>
+            </div>
+
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px",marginBottom:"12px"}}>
+              <div style={{background:T.card,borderRadius:"10px",padding:"10px"}}><div style={{color:T.sub,fontSize:"11px"}}>إجمالي</div><div style={{color:T.gold,fontWeight:"700",fontSize:"15px"}}>{fc(b.totalAmount)}</div></div>
+              <div style={{background:T.card,borderRadius:"10px",padding:"10px"}}><div style={{color:T.sub,fontSize:"11px"}}>الواصل</div><div style={{color:T.green,fontWeight:"700",fontSize:"15px"}}>{fc(b.paidAmount)}</div></div>
+            </div>
+
+            {rem>0&&<div style={{background:T.dangerBg,border:`1px solid ${T.danger}44`,borderRadius:"10px",padding:"10px",marginBottom:"12px",display:"flex",justifyContent:"space-between",alignItems:"center"}}><span style={{color:T.danger,fontSize:"13px"}}>المتبقي</span><span style={{color:T.danger,fontWeight:"800",fontSize:"16px"}}>{fc(rem)}</span></div>}
+
+            <div style={{background:T.border,borderRadius:"6px",height:"6px",marginBottom:"12px"}}>
+              <div style={{height:"100%",borderRadius:"6px",background:fp?T.green:`linear-gradient(90deg,${T.green},${T.gold})`,width:`${Math.min(100,(b.paidAmount/b.totalAmount)*100)}%`,transition:"width 0.5s"}}/>
+            </div>
+
+            <div style={{display:"flex",gap:"6px"}}>
+              {nc&&<button onClick={()=>setConfirmId(b.id)} style={{flex:2,padding:"10px",borderRadius:"10px",background:"linear-gradient(135deg,#1a3a1a,#2a5a2a)",color:T.green,fontWeight:"700",fontSize:"12px",cursor:"pointer",border:`1px solid ${T.green}66`}}>✅ تأكيد</button>}
+              {b.phone&&(
+                <button onClick={()=>openWA(b)} style={{flex:1,padding:"10px",borderRadius:"10px",background:"linear-gradient(135deg,#128c7e,#25d366)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  {/* WhatsApp SVG icon */}
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="white">
+                    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+                  </svg>
+                </button>
+              )}
+              <button onClick={()=>{setForm({name:b.name||"",phone:b.phone||"",startDate:b.startDate,endDate:b.endDate||b.startDate,totalAmount:b.totalAmount,paidAmount:b.paidAmount});setEditId(b.id);setShowForm(true);}} style={{flex:1,padding:"10px",borderRadius:"10px",border:`1px solid ${T.gold}44`,background:T.card2,color:T.gold,fontWeight:"600",fontSize:"13px",cursor:"pointer"}}>✏️</button>
+              <button onClick={()=>setDeleteId(b.id)} style={{padding:"10px 12px",borderRadius:"10px",border:`1px solid ${T.danger}33`,background:T.dangerBg,color:T.danger,fontSize:"13px",cursor:"pointer"}}>🗑️</button>
+            </div>
+          </div>
+        );
+      })}
+  </div>
+
+  {/* Form Modal */}
+  <Modal open={showForm} onClose={()=>setShowForm(false)}>
+    <div style={{color:T.gold,fontSize:"19px",fontWeight:"800",marginBottom:"20px",textAlign:"center"}}>{editId?"✏️ تعديل الحجز":"➕ حجز جديد"}</div>
+    <div style={{marginBottom:"14px"}}><label style={lbl2}>اسم العميل <span style={{color:T.sub,fontWeight:"400"}}>(اختياري)</span></label><input type="text" placeholder="اتركه فارغاً إذا أردت" value={form.name} onChange={e=>setForm(p=>({...p,name:e.target.value}))} style={inp2}/></div>
+    <div style={{marginBottom:"14px"}}><label style={lbl2}>رقم الجوال <span style={{color:T.sub,fontWeight:"400"}}>(اختياري)</span></label><input type="tel" placeholder="05XXXXXXXX" value={form.phone} onChange={e=>setForm(p=>({...p,phone:e.target.value}))} style={inp2}/></div>
+    <div style={{marginBottom:"8px"}}>
+      <label style={lbl2}>اختر التاريخ من التقويم</label>
+      <MiniCalendar bookings={bookings} excludeId={editId} selStart={form.startDate} selEnd={form.endDate} onStart={v=>setForm(p=>({...p,startDate:v}))} onEnd={v=>setForm(p=>({...p,endDate:v}))}/>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px",marginBottom:"8px"}}>
+        <div style={{background:T.card2,borderRadius:"8px",padding:"8px",textAlign:"center"}}><div style={{color:T.sub,fontSize:"10px"}}>البداية</div><div style={{color:T.gold,fontWeight:"700",fontSize:"13px"}}>{form.startDate||"—"}</div></div>
+        <div style={{background:T.card2,borderRadius:"8px",padding:"8px",textAlign:"center"}}><div style={{color:T.sub,fontSize:"10px"}}>النهاية</div><div style={{color:T.gold,fontWeight:"700",fontSize:"13px"}}>{form.endDate||"—"}</div></div>
+      </div>
+    </div>
+    {fDur>0&&<div style={{background:dConf.length>0?T.dangerBg:T.card2,border:`1px solid ${dConf.length>0?T.danger:T.gold}33`,borderRadius:"10px",padding:"10px 14px",marginBottom:"10px",display:"flex",justifyContent:"space-between"}}><span style={{color:T.sub,fontSize:"13px"}}>المدة</span><span style={{color:dConf.length>0?T.danger:T.gold,fontWeight:"800"}}>{fDur} {fDur===1?"يوم":"أيام"}</span></div>}
+    {dConf.length>0&&<div style={{background:T.dangerBg,border:`1px solid ${T.danger}`,borderRadius:"12px",padding:"12px 14px",marginBottom:"14px"}}><div style={{color:T.danger,fontWeight:"800",fontSize:"14px",marginBottom:"6px"}}>🔴 التاريخ غير متاح!</div>{dConf.map(c=><div key={c.id} style={{color:T.danger,fontSize:"12px",opacity:0.8}}>⚠ {c.name||"عميل"} — {c.startDate} إلى {c.endDate||c.startDate}</div>)}</div>}
+    <div style={{marginBottom:"14px"}}><label style={lbl2}>إجمالي المبلغ (ريال)</label><input type="number" placeholder="0" value={form.totalAmount} onChange={e=>setForm(p=>({...p,totalAmount:e.target.value}))} style={inp2}/></div>
+    <div style={{marginBottom:"14px"}}><label style={lbl2}>المبلغ الواصل (ريال)</label><input type="number" placeholder="0" value={form.paidAmount} onChange={e=>setForm(p=>({...p,paidAmount:e.target.value}))} style={inp2}/></div>
+    {form.totalAmount&&form.paidAmount&&<div style={{background:T.card2,borderRadius:"10px",padding:"12px",marginBottom:"16px",textAlign:"center"}}><span style={{color:T.sub,fontSize:"13px"}}>المتبقي: </span><span style={{color:T.danger,fontWeight:"800"}}>{fc(Math.max(0,parseFloat(form.totalAmount)-parseFloat(form.paidAmount)))}</span></div>}
+    <div style={{display:"flex",gap:"10px"}}>
+      <button onClick={save} disabled={dConf.length>0} style={{flex:1,padding:"14px",borderRadius:"12px",border:"none",background:dConf.length>0?T.card2:`linear-gradient(135deg,${T.gold},${T.gold2})`,color:dConf.length>0?T.sub:"#0f1923",fontWeight:"800",fontSize:"15px",cursor:dConf.length>0?"not-allowed":"pointer"}}>حفظ</button>
+      <button onClick={()=>setShowForm(false)} style={{flex:1,padding:"14px",borderRadius:"12px",border:`1px solid ${T.border}`,background:T.card2,color:T.sub,fontSize:"15px",cursor:"pointer"}}>إلغاء</button>
+    </div>
+  </Modal>
+
+  <Modal open={!!confirmId} onClose={()=>setConfirmId(null)}>
+    <div style={{textAlign:"center"}}>
+      <div style={{fontSize:"52px",marginBottom:"16px"}}>✅</div>
+      <div style={{color:T.text,fontSize:"18px",fontWeight:"700",marginBottom:"8px"}}>هل تم إتمام الحجز؟</div>
+      <div style={{color:T.sub,fontSize:"14px",marginBottom:"24px"}}>{bookings.find(b=>b.id===confirmId)?.name||"العميل"}</div>
+      <div style={{display:"flex",gap:"10px"}}>
+        <button onClick={()=>{setBookings(p=>p.map(b=>b.id===confirmId?{...b,confirmed:true}:b));setConfirmId(null);}} style={{flex:1,padding:"14px",borderRadius:"12px",border:"none",background:"linear-gradient(135deg,#2a5a2a,#4caf50)",color:"white",fontWeight:"800",fontSize:"15px",cursor:"pointer"}}>نعم ✓</button>
+        <button onClick={()=>setConfirmId(null)} style={{flex:1,padding:"14px",borderRadius:"12px",border:`1px solid ${T.border}`,background:T.card2,color:T.sub,fontSize:"15px",cursor:"pointer"}}>لا</button>
+      </div>
+    </div>
+  </Modal>
+
+  <Modal open={!!deleteId} onClose={()=>setDeleteId(null)}>
+    <div style={{textAlign:"center"}}>
+      <div style={{fontSize:"52px",marginBottom:"16px"}}>🗑️</div>
+      <div style={{color:T.text,fontSize:"18px",fontWeight:"700",marginBottom:"24px"}}>حذف الحجز؟</div>
+      <div style={{display:"flex",gap:"10px"}}>
+        <button onClick={()=>{setBookings(p=>p.filter(b=>b.id!==deleteId));setDeleteId(null);}} style={{flex:1,padding:"14px",borderRadius:"12px",border:"none",background:"linear-gradient(135deg,#5a1a1a,#c62828)",color:"white",fontWeight:"800",fontSize:"15px",cursor:"pointer"}}>حذف</button>
+        <button onClick={()=>setDeleteId(null)} style={{flex:1,padding:"14px",borderRadius:"12px",border:`1px solid ${T.border}`,background:T.card2,color:T.sub,fontSize:"15px",cursor:"pointer"}}>إلغاء</button>
+      </div>
+    </div>
+  </Modal>
+  <style>{`@keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.8;}} input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(0.7) sepia(1) saturate(3) hue-rotate(5deg);} input::placeholder{color:${T.sub2};} *{-webkit-tap-highlight-color:transparent;}`}</style>
+</div>
+```
+
+);
+}
+
+// ─── HOME SCREEN ──────────────────────────────────────
+function BMZApp(){
+const [bookings,setBookings]=useState(()=>{try{const s=JSON.parse(localStorage.getItem(SK_B)||”[]”);return s.map(b=>b.startDate?b:{…b,startDate:b.date,endDate:b.date});}catch{return[];}});
+const [expenses,setExpenses]=useState(()=>{try{return JSON.parse(localStorage.getItem(SK_E)||”[]”);}catch{return[];}});
+const [screen,setScreen]=useState(“home”);
+const [appName,setAppName]=useState(()=>{try{return localStorage.getItem(SK_N)||“BMZ”;}catch{return”BMZ”;}});
+const [themeKey,setThemeKey]=useState(()=>{try{return localStorage.getItem(SK_T)||“dark”;}catch{return”dark”;}});
+const [showSettings,setShowSettings]=useState(false);
+const [tempName,setTempName]=useState(””);
+
+const T=THEMES[themeKey]||THEMES.dark;
+
+const saveSettings=()=>{
+const name=tempName.trim()||“BMZ”;
+setAppName(name);
+try{localStorage.setItem(SK_N,name);}catch{}
+setShowSettings(false);
+};
+const setTheme=k=>{setThemeKey(k);try{localStorage.setItem(SK_T,k);}catch{}};
+
+const now=new Date();
+const mk=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
+const bkThisMonth=bookings.filter(b=>mKey(b.startDate)===mk);
+const exThisMonth=expenses.filter(e=>e.date?.startsWith(mk));
+const mIncome=bkThisMonth.filter(b=>b.confirmed).reduce((s,b)=>s+(b.paidAmount||0),0);
+const mExpense=exThisMonth.reduce((s,e)=>s+(e.amount||0),0);
+const mNet=mIncome-mExpense;
+const upcoming=bookings.filter(b=>!isPast(b.endDate||b.startDate)&&!b.confirmed).length;
+const tomorrow=bookings.filter(b=>isTmrw(b.startDate,b.endDate)&&!b.confirmed);
+
+const inp2={background:T.inputBg,border:`1px solid ${T.gold}44`,borderRadius:“10px”,color:T.inputText,padding:“12px 14px”,width:“100%”,fontSize:“15px”,outline:“none”,boxSizing:“border-box”,fontFamily:“inherit”,direction:“rtl”};
+const lbl2={color:T.gold,fontSize:“13px”,marginBottom:“6px”,display:“block”,fontWeight:“600”};
+
+return(
+<ThemeCtx.Provider value={T}>
+<div style={{minHeight:“100vh”,background:T.bg,backgroundImage:T.radial,fontFamily:”‘Segoe UI’,Tahoma,sans-serif”,direction:“rtl”,display:“flex”,flexDirection:“column”}}>
+
+```
+    {screen==="bookings"&&<BookingsScreen bookings={bookings} setBookings={setBookings} onBack={()=>setScreen("home")}/>}
+    {screen==="expenses"&&<ExpensesScreen expenses={expenses} setExpenses={setExpenses} bookings={bookings} onBack={()=>setScreen("home")}/>}
+
+    {screen==="home"&&<>
+      {/* Header */}
+      <div style={{background:T.headerBg,borderBottom:`2px solid ${T.gold}`,padding:"28px 24px 20px",textAlign:"center",boxShadow:T.shadow,position:"relative"}}>
+        <button onClick={()=>{setTempName(appName);setShowSettings(true);}} style={{position:"absolute",top:"16px",left:"16px",background:T.card2,border:`1px solid ${T.gold}44`,borderRadius:"10px",padding:"8px 12px",color:T.gold,fontSize:"16px",cursor:"pointer"}}>⚙️</button>
+        <div style={{fontSize:"44px",fontWeight:"900",letterSpacing:"6px",background:`linear-gradient(135deg,${T.gold},${T.gold2},${T.gold})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",marginBottom:"6px"}}>{appName}</div>
+        <div style={{color:T.sub,fontSize:"13px",letterSpacing:"2px"}}>نظام إدارة الأعمال</div>
+        <div style={{color:T.sub2,fontSize:"11px",marginTop:"4px"}}>{AM[now.getMonth()]} {now.getFullYear()}</div>
+      </div>
+
+      {tomorrow.length>0&&(
+        <div style={{margin:"14px 16px 0",background:"linear-gradient(135deg,#2a1a00,#3a2500)",border:"1px solid #ff9800",borderRadius:"12px",padding:"12px 16px",display:"flex",alignItems:"center",gap:"10px",animation:"pulse 2s infinite"}}>
+          <span style={{fontSize:"22px"}}>🔔</span>
+          <div><div style={{color:"#ffb74d",fontWeight:"700",fontSize:"14px"}}>تنبيه — موعد غداً</div><div style={{color:"#ffe0b2",fontSize:"12px"}}>{tomorrow.map(b=>b.name||"عميل").join("، ")}</div></div>
+        </div>
+      )}
+
+      {/* Monthly summary */}
+      <div style={{padding:"16px 16px 8px"}}>
+        <div style={{color:T.sub,fontSize:"11px",marginBottom:"10px",fontWeight:"600",textAlign:"center"}}>ملخص هذا الشهر</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"8px"}}>
+          {[{i:"💰",l:"الإيرادات",v:fc(mIncome),c:T.green},{i:"💸",l:"المصروفات",v:fc(mExpense),c:T.danger},{i:mNet>=0?"📈":"📉",l:"صافي الربح",v:fc(mNet),c:mNet>=0?T.green:T.danger}].map((s,i)=>(
+            <div key={i} style={{background:T.statBg,border:`1px solid ${s.c}33`,borderRadius:"14px",padding:"12px 8px",textAlign:"center"}}>
+              <div style={{fontSize:"20px",marginBottom:"4px"}}>{s.i}</div>
+              <div style={{color:s.c,fontSize:"12px",fontWeight:"800"}}>{s.v}</div>
+              <div style={{color:T.sub,fontSize:"10px",marginTop:"3px"}}>{s.l}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Nav cards */}
+      <div style={{padding:"12px 16px 30px",flex:1,display:"flex",flexDirection:"column",gap:"14px",justifyContent:"center"}}>
+        <button onClick={()=>setScreen("bookings")} style={{background:`linear-gradient(135deg,${T.card},${T.card2})`,border:`2px solid ${T.gold}55`,borderRadius:"20px",padding:"24px 22px",cursor:"pointer",textAlign:"right",position:"relative",overflow:"hidden",boxShadow:`0 8px 32px ${T.gold}11`}}>
+          <div style={{position:"absolute",top:"-20px",left:"-20px",fontSize:"100px",opacity:"0.04"}}>📅</div>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <div style={{display:"flex",alignItems:"center",gap:"16px"}}>
+              <div style={{width:"56px",height:"56px",background:`linear-gradient(135deg,${T.gold}22,${T.gold}44)`,border:`2px solid ${T.gold}66`,borderRadius:"16px",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"26px"}}>📅</div>
+              <div><div style={{color:T.text,fontWeight:"900",fontSize:"20px"}}>الحجوزات</div><div style={{color:T.sub,fontSize:"12px",marginTop:"3px"}}>إدارة الحجوزات والعملاء</div></div>
+            </div>
+            <div style={{textAlign:"left"}}><div style={{color:T.gold,fontWeight:"900",fontSize:"22px"}}>{upcoming}</div><div style={{color:T.sub,fontSize:"10px"}}>نشط</div></div>
+          </div>
+          <div style={{marginTop:"14px",display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"8px"}}>
+            {[{l:"إجمالي",v:bookings.length},{l:"مكتملة",v:bookings.filter(b=>b.confirmed).length},{l:"هذا الشهر",v:bkThisMonth.length}].map((s,i)=>(
+              <div key={i} style={{background:`${T.gold}11`,borderRadius:"8px",padding:"6px",textAlign:"center"}}>
+                <div style={{color:T.gold,fontWeight:"700",fontSize:"14px"}}>{s.v}</div>
+                <div style={{color:T.sub,fontSize:"10px"}}>{s.l}</div>
+              </div>
+            ))}
+          </div>
+        </button>
+
+        <button onClick={()=>setScreen("expenses")} style={{background:`linear-gradient(135deg,${T.card},${T.card2})`,border:`2px solid ${T.danger}55`,borderRadius:"20px",padding:"24px 22px",cursor:"pointer",textAlign:"right",position:"relative",overflow:"hidden"}}>
+          <div style={{position:"absolute",top:"-20px",left:"-20px",fontSize:"100px",opacity:"0.04"}}>💸</div>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <div style={{display:"flex",alignItems:"center",gap:"16px"}}>
+              <div style={{width:"56px",height:"56px",background:`${T.danger}22`,border:`2px solid ${T.danger}44`,borderRadius:"16px",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"26px"}}>💸</div>
+              <div><div style={{color:T.text,fontWeight:"900",fontSize:"20px"}}>المصروفات</div><div style={{color:T.sub,fontSize:"12px",marginTop:"3px"}}>تتبع المصروفات</div></div>
+            </div>
+            <div style={{textAlign:"left"}}><div style={{color:T.danger,fontWeight:"900",fontSize:"16px"}}>{fc(mExpense)}</div><div style={{color:T.sub,fontSize:"10px"}}>هذا الشهر</div></div>
+          </div>
+        </button>
+      </div>
+
+      {/* Settings Modal */}
+      <Modal open={showSettings} onClose={()=>setShowSettings(false)}>
+        <div style={{color:T.gold,fontSize:"19px",fontWeight:"800",marginBottom:"20px",textAlign:"center"}}>⚙️ الإعدادات</div>
+        <div style={{marginBottom:"20px"}}>
+          <label style={lbl2}>اسم التطبيق</label>
+          <input type="text" placeholder="مثال: BMZ، شاليه الورود..." value={tempName} onChange={e=>setTempName(e.target.value)} style={inp2} maxLength={20}/>
+          <div style={{color:T.sub,fontSize:"11px",marginTop:"6px"}}>اتركه فارغاً لاستخدام BMZ</div>
+        </div>
+        <div style={{marginBottom:"20px"}}>
+          <label style={lbl2}>ثيم التطبيق</label>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px"}}>
+            {[{k:"dark",i:"🌙",l:"غامق",bg:"#060e17",card:"#0f1923"},{k:"light",i:"☀️",l:"فاتح",bg:"#f0f4f8",card:"#ffffff"}].map(th=>(
+              <button key={th.k} onClick={()=>setTheme(th.k)} style={{padding:"16px",borderRadius:"14px",border:`2px solid ${themeKey===th.k?T.gold:T.border}`,background:th.bg,cursor:"pointer",textAlign:"center"}}>
+                <div style={{fontSize:"28px",marginBottom:"6px"}}>{th.i}</div>
+                <div style={{color:themeKey===th.k?T.gold:"#888",fontWeight:"700",fontSize:"14px"}}>{th.l}</div>
+                {themeKey===th.k&&<div style={{color:"#4caf50",fontSize:"11px",marginTop:"4px"}}>✓ مفعّل</div>}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div style={{display:"flex",gap:"10px"}}>
+          <button onClick={saveSettings} style={{flex:1,padding:"14px",borderRadius:"12px",border:"none",background:`linear-gradient(135deg,${T.gold},${T.gold2})`,color:"#0f1923",fontWeight:"800",fontSize:"15px",cursor:"pointer"}}>حفظ الاسم</button>
+          <button onClick={()=>setShowSettings(false)} style={{flex:1,padding:"14px",borderRadius:"12px",border:`1px solid ${T.border}`,background:T.card2,color:T.sub,fontSize:"15px",cursor:"pointer"}}>إغلاق</button>
+        </div>
+      </Modal>
+    </>}
+
+    <style>{`@keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.8;}} *{-webkit-tap-highlight-color:transparent;} button{font-family:inherit;} input::placeholder{color:${T.sub2};}`}</style>
+  </div>
+</ThemeCtx.Provider>
+```
+
+);
+}
+
+ReactDOM.createRoot(document.getElementById(‘root’)).render(<BMZApp/>);
+</script>
+
+</body>
+</html>
